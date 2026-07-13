@@ -1,0 +1,7 @@
+{
+  "name": "elixir-isabelle",
+  "description": "Elixir 1.20 (image-native, no asdf) + Isabelle/HOL 2025-2 + atp_mcp escript",
+  "build": {
+    "dockerfile": "Dockerfile"
+  }
+}

@@ -1,0 +1,10 @@
+/_build/
+/deps/
+/cover/
+/doc/
+erl_crash.dump
+*.ez
+*.beam
+# Written by .claude/atp-mcp-launch.sh at MCP startup; contains the
+# Isabelle server password — never commit.
+/.isabelle_server_info

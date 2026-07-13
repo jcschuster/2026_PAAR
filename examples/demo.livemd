@@ -1,0 +1,61 @@
+# AtpClient + KinoAtpClient demo
+
+```elixir
+Mix.install([
+  {:kino_atp_client, "~> 0.5"}
+])
+```
+
+## LocalExec: prove a TPTP problem with the bundled E prover
+
+```elixir
+Application.put_env(:atp_client, :local_exec,
+  binary: "eprover",
+  args: ["--auto", "--tstp-format", "--cpu-limit=10"],
+  cpu_timeout_s: 10
+)
+
+problem = """
+fof(tautology, conjecture, (p => p)).
+"""
+
+AtpClient.LocalExec.query(problem, [])
+```
+
+## Isabelle: prove a lemma via the resident server
+
+The container's MCP launcher starts an Isabelle server (`atp`, port 9999)
+and writes its password to `/workspace/.isabelle_server_info`. If you
+haven't started Claude Code in this container yet, start the server by
+hand first: `isabelle server -n atp -p 9999 &` and note the printed
+password.
+
+```elixir
+password =
+  "/workspace/.isabelle_server_info"
+  |> File.read!()
+  |> String.split("\n", trim: true)
+  |> Enum.find_value(fn
+    "password=" <> pw -> pw
+    _ -> nil
+  end)
+
+Application.put_env(:atp_client, :isabelle,
+  host: "127.0.0.1",
+  port: 9999,
+  password: password,
+  session: "HOL"
+)
+
+theory = ~S"""
+lemma "P \<or> \<not> P" by auto
+"""
+
+AtpClient.Isabelle.query(theory, "Example", [])
+```
+
+## Smart cells
+
+With `kino_atp_client` installed, the *"+ Smart"* cell menu offers the
+AtpClient smart cells — see the package's own `examples/demo.livemd` in
+`jcschuster/KinoAtpClient` for the full tour.
