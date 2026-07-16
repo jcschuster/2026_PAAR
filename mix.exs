@@ -17,7 +17,7 @@ defmodule AtpDemo.MixProject do
 
   defp deps do
     [
-      {:atp_client, "~> 0.5"}
+      {:atp_client, "~> 0.6"}
     ]
   end
 end

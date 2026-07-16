@@ -1,0 +1,82 @@
+Subject: [PATCH] TPTP: embed TPTP.thy at compile time so escript callers can reach it
+
+Against isabelle_elixir 0.4.0. Apply with `patch -p1` from the repo root.
+
+PROBLEM
+  IsabelleClient.TPTP.source_path/0 locates the bundled theory with
+  Application.app_dir(:isabelle_elixir, "priv/..."). Mix escripts bundle only
+  ebin/ -- no priv/ -- and the escript itself is a single zip FILE, so at
+  runtime that path resolves *through* a regular file. Every read of it fails
+  with :enotdir.
+
+  This makes AtpClient.Isabelle.prove_tptp/3 (and therefore atp_mcp's
+  `query_backend backend:"isabelle"`, which is escript-packaged) fail with
+  {:error, {:tptp_thy_copy_failed, :enotdir}} 100% of the time. It is invisible
+  from iex/Livebook/mix test, where priv/ is a real directory on disk.
+
+  Verified: `unzip -l` on the atp_mcp escript shows no priv/ and no TPTP.thy;
+  only ebin/ dirs are packaged.
+
+FIX
+  Read TPTP.thy at compile time into @source_text and expose it as
+  source_text/0, which works regardless of packaging. load/2 now writes that
+  text instead of File.cp!/2 from priv/. @external_resource keeps recompilation
+  correct if the .thy changes.
+
+  source_path/0 is kept (it is @doc false but public, and fine for non-escript
+  callers). Consider deprecating it in favour of source_text/0.
+
+NOTE FOR DOWNSTREAM
+  atp_client's ensure_tptp_theory/1 must switch to source_text/0 to benefit;
+  see the companion atp_client patch. That raises atp_client's isabelle_elixir
+  requirement to the release carrying source_text/0.
+
+VERIFIED
+  Built the atp_mcp 0.5.1 escript against the patched deps and drove it over
+  stdio JSON-RPC with no TPTP.thy pre-placed anywhere:
+    before: query_backend isabelle => Error: {:tptp_thy_copy_failed, :enotdir}
+    after:  query_backend isabelle => Theorem   (escript writes TPTP.thy itself)
+
+--- a/lib/isabelle_client/tptp.ex
++++ b/lib/isabelle_client/tptp.ex
+@@ -9,6 +9,15 @@
+ 
+   @theory "TPTP"
+ 
++  # Read at compile time and carried in the module's binary. `priv/` is a real
++  # directory only for a normal Mix build: escripts bundle nothing but `ebin`,
++  # so `Application.app_dir/2` there resolves *through* the escript file and
++  # any read fails with :enotdir. Embedding keeps `TPTP.thy` reachable from
++  # escript-packaged callers (e.g. the atp_mcp server) as well.
++  @thy_path Path.join([__DIR__, "..", "..", "priv", "isabelle", "tptp", "#{@theory}.thy"])
++  @external_resource @thy_path
++  @source_text File.read!(@thy_path)
++
+   @doc """
+   Loads the bundled `TPTP.thy` support theory into the active client session.
+ 
+@@ -20,13 +29,23 @@
+     with %Session{tmp_dir: tmp_dir} when is_binary(tmp_dir) <-
+            IsabelleClient.active_session(client) do
+       File.mkdir_p!(tmp_dir)
+-      File.cp!(source_path(), Path.join(tmp_dir, "#{@theory}.thy"))
++      File.write!(Path.join(tmp_dir, "#{@theory}.thy"), source_text())
+       IsabelleClient.use_theories(client, [theories: [@theory], master_dir: tmp_dir], timeout)
+     else
+       _ -> {:error, :no_session}
+     end
+   end
+ 
++  @doc """
++  Contents of the bundled `TPTP.thy`.
++
++  Prefer this over `source_path/0`: it works regardless of how the caller is
++  packaged, whereas `source_path/0` points into `priv/` and so only resolves
++  for a normal Mix build.
++  """
++  @spec source_text() :: String.t()
++  def source_text, do: @source_text
++
+   @doc false
+   def source_path do
+     Application.app_dir(:isabelle_elixir, "priv/isabelle/tptp/#{@theory}.thy")
