@@ -33,7 +33,7 @@ must be given per call).
 ### Isabelle — IMPORTANT: per-call credentials
 
 The MCP launcher starts a resident Isabelle server (`atp`, port 9999) and
-writes its credentials to `/workspace/.isabelle_server_info`:
+writes its credentials to `/workspaces/2026_PAAR/.isabelle_server_info`:
 
 ```
 host=127.0.0.1
@@ -43,7 +43,7 @@ password=<generated per container run>
 
 The escript cannot read this project's `config.exs`, and `AtpClient` accepts
 the Isabelle password only via app config or per-call options. Therefore:
-**before the first Isabelle tool call, read `/workspace/.isabelle_server_info`
+**before the first Isabelle tool call, read `/workspaces/2026_PAAR/.isabelle_server_info`
 and pass `host`, `port`, and `password` as arguments** on `prove_isabelle`
 and on `query_backend` with `backend: "isabelle"`. Both tools forward these
 keys. Never print the password in responses or commit the file.

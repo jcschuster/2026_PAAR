@@ -27,7 +27,7 @@ SERVER_NAME="atp"
 SERVER_PORT="9999"
 LOG_DIR="${HOME}/.isabelle-atp"
 LOG_FILE="${LOG_DIR}/server.log"
-INFO_FILE="${INFO_FILE:-/workspace/.isabelle_server_info}"
+INFO_FILE="${INFO_FILE:-/workspaces/2026_PAAR/.isabelle_server_info}"
 
 ensure_isabelle_server() {
   mkdir -p "${LOG_DIR}"

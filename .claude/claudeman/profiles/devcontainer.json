@@ -1,0 +1,7 @@
+{
+  "name": "elixir-isabelle",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "node"
+}

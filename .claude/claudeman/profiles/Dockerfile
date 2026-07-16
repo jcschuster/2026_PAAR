@@ -19,7 +19,19 @@
 #  5. +fnu and a UTF-8 locale are baked in as image ENV so every process
 #     (shells, mix, iex, the escript) inherits them.
 
+# --- Isabelle source stage -----------------------------------------------
+# Pull from the official makarius/isabelle image instead of downloading the
+# tarball at build time. The TUM distribution server redirects to an HTTP-
+# only CDN (dist.isabelle.cit.tum.de:80) that is unreachable from many
+# build environments. The Docker Hub image ships identical content with
+# system HOL heaps already built (via `isabelle build -o system_heaps -b HOL`),
+# so they are included in /home/isabelle/Isabelle and copied below.
+ARG ISABELLE_VERSION=Isabelle2025-2
+FROM docker.io/makarius/isabelle:${ISABELLE_VERSION} AS isabelle-src
+
 FROM docker.io/library/elixir:1.20-otp-28
+
+ARG ISABELLE_VERSION=Isabelle2025-2
 
 # --- OS packages --------------------------------------------------------
 # libfontconfig1/libgomp1/pwgen/rlwrap/unzip/less/perl cover headless
@@ -38,16 +50,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN npm install -g @anthropic-ai/claude-code @ast-grep/cli
 
 # --- Isabelle ------------------------------------------------------------
-# Isabelle2025-2 (current release, Jan 2026; replaced Isabelle2025-1).
-# The Linux bundle is ~1.2 GB; expect a large image. SHA256 is from the
-# official distribution mirror listing.
-ARG ISABELLE_VERSION=Isabelle2025-2
-ARG ISABELLE_SHA256=a20a507bc7c1270d8be96a9f3fbec06345387789d2dc2c4d3df6260d47bfb33c
-RUN curl -fsSL -o /tmp/isabelle.tar.gz \
-        "https://isabelle.in.tum.de/dist/${ISABELLE_VERSION}_linux.tar.gz" \
-    && echo "${ISABELLE_SHA256}  /tmp/isabelle.tar.gz" | sha256sum -c - \
-    && tar -xzf /tmp/isabelle.tar.gz -C /opt \
-    && rm /tmp/isabelle.tar.gz
+# Copy from the source stage. The makarius image installs Isabelle at
+# /home/isabelle/Isabelle with system heaps inside that directory tree.
+COPY --from=isabelle-src /home/isabelle/Isabelle /opt/${ISABELLE_VERSION}
+RUN chown -R root:root /opt/${ISABELLE_VERSION}
 
 # --- Locale / BEAM filename encoding -------------------------------------
 # +fnu forces the BEAM into unicode filename mode. Without it (e.g. under
@@ -84,11 +90,11 @@ RUN mix local.hex --force && mix local.rebar --force \
 #   livebook server --ip 0.0.0.0 --port 8080 examples/demo.livemd
 RUN mix escript.install hex livebook --force
 
-# --- Isabelle first-run + HOL heap ----------------------------------------
-# The Linux bundle ships prebuilt HOL heaps, in which case this returns
-# almost immediately; if a future bundle doesn't, it builds HOL once at
-# image-build time instead of on the first demo query. Also initialises
-# $ISABELLE_HOME_USER (~/.isabelle) so the server registry directory exists.
+# --- Isabelle first-run ---------------------------------------------------
+# System HOL heaps arrive prebuilt from the isabelle-src stage (built with
+# `-o system_heaps`). This call returns immediately and only serves to
+# initialise $ISABELLE_HOME_USER (~/.isabelle) so the server registry
+# directory exists before the first demo query.
 RUN isabelle build -b HOL
 
 # Sanity checks: fail the build if anything the demo depends on is missing

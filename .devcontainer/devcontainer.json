@@ -1,0 +1,9 @@
+{
+  "name": "elixir-isabelle",
+  "build": {
+    "dockerfile": "../.claude/claudeman/profiles/Dockerfile",
+    "context": "../.claude/claudeman/profiles"
+  },
+  "remoteUser": "node",
+  "workspaceFolder": "/workspace"
+}
