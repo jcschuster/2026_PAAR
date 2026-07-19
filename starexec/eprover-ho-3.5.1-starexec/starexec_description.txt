@@ -1,0 +1,7 @@
+E 3.5.1 built in higher order mode, statically linked. E is a superposition based
+theorem prover for full first order logic with equality, with higher order
+extensions. It accepts FOF, TFF and THF in TPTP syntax and reports SZS
+statuses with proof objects. The default configuration runs an automatic
+strategy schedule with proof output. The sat configuration targets
+satisfiability and counter satisfiability. Author: Stephan Schulz and
+contributors. Source: github.com/eprover/eprover

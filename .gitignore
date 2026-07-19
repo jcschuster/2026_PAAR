@@ -10,3 +10,11 @@ erl_crash.dump
 /.isabelle_server_info
 
 .claude-config
+
+# StarExec / E prover build artifacts
+/external/eprover-src/
+/starexec/*.zip
+/starexec/build/
+
+# Host-installable static binaries (regenerate with scripts/make-host-binaries.sh)
+/host-bin/

@@ -83,6 +83,55 @@ setup fixes each at the root:
    (and a `SessionStart` hook variant) raced the MCP client's first
    `tools/list`. → Nothing is installed at session start anymore.
 
+## Local StarExec container + higher-order E prover
+
+Three additions for working with StarExec and higher-order E. All of the
+commands below run **inside the devcontainer** (Debian — nothing is ever
+installed on your host OS); they are idempotent, re-run the first two after a
+devcontainer rebuild:
+
+```bash
+external/setup-starexec-host.sh          # one-time host prep: nested rootless podman
+external/starexec-containerised/start.sh # start StarExec → https://localhost:7827 (admin:admin)
+scripts/build-eprover-ho.sh              # build E with --enable-ho → eprover-ho on PATH
+scripts/make-starexec-zip.sh             # build starexec/eprover-ho-<ver>-starexec.zip
+```
+
+- `external/starexec-containerised/` is vendored from
+  [jcschuster/AtpClient](https://github.com/jcschuster/AtpClient)'s
+  `external/` (itself from
+  [StarExecMiami/StarExec-ARC](https://github.com/StarExecMiami/StarExec-ARC));
+  `start.sh [start|stop|status|logs]` manages the container, state persists in
+  `starexec_saved_state/`. **Run it on the host** (needs host podman): the
+  devcontainer's network namespace is isolated (pasta), so a StarExec started
+  *inside* the devcontainer is unreachable from the host browser. Host-run
+  StarExec is at `https://localhost:7827` on the host and at
+  `https://host.containers.internal:7827` from inside the devcontainer.
+  `start.sh` auto-detects the environment (nested devcontainer mode still
+  works, but is reachable only from within the devcontainer);
+  `external/setup-starexec-host.sh` is only needed for the nested mode and
+  encodes its workarounds (file-capability newuidmap, vfs storage, host
+  namespaces); see its header comment.
+- `scripts/build-eprover-ho.sh` keeps sources in `external/eprover-src/`
+  (survives rebuilds) and installs only `eprover-ho` — the stock
+  `/usr/bin/eprover` used by the `local_exec` backend stays untouched.
+- **E on the host machine** (e.g. for a Livebook running on the host, whose
+  LocalExec backend needs a host-visible binary): `scripts/make-host-binaries.sh`
+  (run inside the devcontainer) puts **statically linked** `eprover` and
+  `eprover-ho` into `host-bin/` — the workspace is bind-mounted, so on the host
+  they appear at the same repo path and run on any x86_64 Linux (no glibc
+  dependency, no packages needed). Install on the host with
+  `sudo install -m755 host-bin/eprover host-bin/eprover-ho /usr/local/bin/`
+  (or into `~/.local/bin` without root), or point the LocalExec `binary:`
+  option straight at `host-bin/eprover`.
+- The solver zip contains a **statically linked** `eprover-ho` (runs on any
+  StarExec host glibc), `bin/starexec_run_eprover-ho` (auto-schedule, proofs),
+  `bin/starexec_run_eprover-ho-sat` ((counter-)satisfiability schedule) and a
+  `starexec_description.txt` that StarExec reads on upload. Upload it in the
+  StarExec web UI via *Spaces → your space → upload solver*, choosing
+  "description from archive". Port 7827 must be forwarded to reach the UI
+  from the host browser.
+
 ## Livebook / KinoAtpClient
 
 Inside the container:

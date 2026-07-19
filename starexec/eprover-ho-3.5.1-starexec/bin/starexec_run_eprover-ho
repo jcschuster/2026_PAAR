@@ -1,0 +1,7 @@
+#!/bin/sh
+# Default configuration: proof search with automatic strategy schedule.
+# $1 = benchmark file; StarExec provides the resource-limit variables.
+MEM_OPT=""
+[ -n "$STAREXEC_MAX_MEM" ] && MEM_OPT="--memory-limit=$STAREXEC_MAX_MEM"
+exec ./eprover-ho --auto-schedule -s --proof-object --print-statistics \
+  --cpu-limit="${STAREXEC_CPU_LIMIT:-300}" $MEM_OPT "$1"

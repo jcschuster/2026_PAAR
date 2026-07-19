@@ -84,6 +84,45 @@ accepted but ignored here.
 Until those ship, use `prove_isabelle` (hand-written theory) or `local_exec` /
 `sotptp` for TPTP problems.
 
+## StarExec container & higher-order E prover
+
+All of this is set up but **lives partly in the container image — after a
+devcontainer rebuild re-run the two idempotent scripts below** (they detect
+what is missing):
+
+- `external/setup-starexec-host.sh` — nested rootless podman. Non-obvious
+  environment constraints are encoded here (this devcontainer is itself a
+  rootless container): file *capabilities* instead of setuid on
+  newuidmap/newgidmap, subuid range 1001-65536, vfs storage driver, and
+  containers must run `--network=host --pid=host --uts=host` (no
+  /dev/net/tun, masked /proc). Don't "fix" any of these back to defaults.
+- `scripts/build-eprover-ho.sh` — builds `eprover-ho` (E with `--enable-ho`,
+  source kept in `external/eprover-src/`) and installs it to
+  `/usr/local/bin`. Never install plain `eprover` from there: it would
+  shadow `/usr/bin/eprover`, which the atp_mcp local_exec backend uses.
+
+StarExec itself: `external/starexec-containerised/start.sh [start|stop|status|logs]`
+(vendored from jcschuster/AtpClient, auto-detects environment). **The
+canonical instance runs on the user's host machine** (they run start.sh
+there), because the devcontainer's netns is isolated (pasta — the wlan0 you
+see in here is a tap mirage, and ports bound here are NOT visible on the
+host). Login `admin:admin`, state in `starexec_saved_state/` (never share one
+state dir between a host and a nested instance — two MariaDBs corrupt it).
+First boot initializes MariaDB and deploys the webapp — takes several
+minutes. Reach the host instance from inside this container at
+`https://host.containers.internal:7827` (self-signed cert — disable TLS
+verification). The nested-in-devcontainer mode still works but is reachable
+only from inside the devcontainer.
+
+`scripts/make-host-binaries.sh` builds **static** `eprover` + `eprover-ho`
+into `host-bin/` for the user's Arch host (bind-mounted workspace; the user
+installs them host-side themselves — never suggest apt/pacman for this).
+
+`scripts/make-starexec-zip.sh` regenerates
+`starexec/eprover-ho-<ver>-starexec.zip` (statically linked `eprover-ho`,
+`bin/starexec_run_*` configs, `starexec_description.txt`), ready to upload
+as a StarExec solver.
+
 ## Working in the Mix project
 
 - `mix deps.get && mix compile` before first use; `config/config.exs`

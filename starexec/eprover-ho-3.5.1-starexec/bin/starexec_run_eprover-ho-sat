@@ -1,0 +1,6 @@
+#!/bin/sh
+# Configuration aimed at establishing (counter-)satisfiability.
+MEM_OPT=""
+[ -n "$STAREXEC_MAX_MEM" ] && MEM_OPT="--memory-limit=$STAREXEC_MAX_MEM"
+exec ./eprover-ho --satauto-schedule -s --proof-object --print-statistics \
+  --cpu-limit="${STAREXEC_CPU_LIMIT:-300}" $MEM_OPT "$1"
