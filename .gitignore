@@ -18,3 +18,7 @@ erl_crash.dump
 
 # Host-installable static binaries (regenerate with scripts/make-host-binaries.sh)
 /host-bin/
+
+.present.sh
+2026_PAAR_talk_notes.pdf
+2026_PAAR_talk_notes.pdfpc

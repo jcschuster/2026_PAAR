@@ -133,11 +133,8 @@ as a StarExec solver.
 
 ## Livebook (KinoAtpClient)
 
-`livebook` is installed as an escript. Start it with:
-
-```
-livebook server --ip 0.0.0.0 --port 8080 examples/demo.livemd
-```
-
-and open the printed URL from the host (port must be reachable from the
-host; see README).
+The KinoAtpClient demo (`examples/demo.livemd`) is **not** run in this
+container — there is no `livebook` escript in the image. It runs on the
+user's host machine (the workspace is bind-mounted, so the notebook is at
+the same path there). See the "Livebook / KinoAtpClient" section of the
+README. Don't try to `livebook server` in here.

@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # Launcher for the atp_mcp MCP server.
 #
-# Unlike the old ShotTx launcher, this does NOT install the escript lazily
-# (it is baked into the image at /home/node/.mix/escripts/atp_mcp, which is
-# on PATH) and does NOT go spelunking through asdf install dirs. Its only
-# jobs are:
+# This does NOT install the escript lazily (it is baked into the image at
+# /home/node/.mix/escripts/atp_mcp, which is on PATH). Its only jobs are:
 #
 #   1. ensure the resident Isabelle server "atp" is running on port 9999,
 #   2. write its connection info (host/port/password) to

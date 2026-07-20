@@ -1,6 +1,6 @@
 # Demo container: Elixir 1.20 + Isabelle/HOL + atp_mcp
 #
-# Design decisions (each fixes a concrete problem in the old ShotTx setup):
+# Design decisions:
 #
 #  1. Debian base, NOT alpine. Isabelle's bundled Poly/ML and JDK are
 #     glibc binaries and do not run on musl. This also gives sane locale
@@ -85,10 +85,9 @@ RUN mix local.hex --force && mix local.rebar --force \
     && mix escript.install hex atp_mcp --force \
     && test -x /home/node/.mix/escripts/atp_mcp
 
-# Optional: Livebook for the KinoAtpClient smart-cell demo. Comment out to
-# slim the image / speed up the build. Run inside the container with:
-#   livebook server --ip 0.0.0.0 --port 8080 examples/demo.livemd
-RUN mix escript.install hex livebook --force
+# NOTE: no Livebook in this image. The container is for claudeman (Claude
+# Code + the atp MCP server) and local StarExec work only; the KinoAtpClient
+# Livebook demo (examples/demo.livemd) is run on the host — see the README.
 
 # --- Isabelle first-run ---------------------------------------------------
 # System HOL heaps arrive prebuilt from the isabelle-src stage (built with

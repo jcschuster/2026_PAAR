@@ -1,10 +1,24 @@
 # atp_demo — PAAR'26 demo for AtpClient / KinoAtpClient / AtpMcp
 
-A self-contained project + claudeman container that demonstrates the
+A self-contained project + container that demonstrates the
 [`atp_client`](https://hex.pm/packages/atp_client),
 [`kino_atp_client`](https://hex.pm/packages/kino_atp_client) and
 [`atp_mcp`](https://hex.pm/packages/atp_mcp) packages, with Elixir 1.20 and
 a full Isabelle/HOL installation available inside the container.
+
+The three packages share one set of ATP backends — **SystemOnTPTP**,
+**StarExec**, **Isabelle** and **LocalExec** — exposed three ways:
+
+| Package           | How you drive the backends                                          |
+| ----------------- | ------------------------------------------------------------------- |
+| `atp_client`      | Plain Elixir API (iex, scripts, releases)                           |
+| `kino_atp_client` | Livebook smart cells (`examples/demo.livemd`)                       |
+| `atp_mcp`         | The same backends as MCP tools, for use from an LLM agent           |
+
+The container in this repo is deliberately narrow: it runs **claudeman**
+(Claude Code with the `atp` MCP server wired in) and hosts the **local
+StarExec** tooling. The **Livebook** demo (`kino_atp_client`) is run on your
+**host machine**, not in the container — see the Livebook section below.
 
 ## Quick start
 
@@ -14,16 +28,52 @@ a full Isabelle/HOL installation available inside the container.
 
 This runs `claudeman run --workspace . --profile elixir-isabelle
 --no-firewall`, building the image from
-`.claude/claudeman/profiles/Dockerfile` on first use. Note: the image
-downloads the ~1.2 GB Isabelle2025-2 Linux bundle and compiles the
-`atp_mcp` and `livebook` escripts at build time — the first build takes a
-while; afterwards everything is cached in the image and startup is instant.
+`.claude/claudeman/profiles/Dockerfile` on first use. claudeman is a
+containerised launcher for Claude Code: it builds the profile's devcontainer
+image and starts Claude Code inside it, with the workspace bind-mounted.
 
-Inside Claude Code, the `atp` MCP server is preconfigured (`.mcp.json` +
-`enabledMcpjsonServers` in `.claude/settings.json`). Try:
+The first build downloads the ~1.2 GB Isabelle2025-2 Linux bundle and
+compiles the `atp_mcp` escript, so it takes a while; afterwards everything
+is cached in the image and startup is quick.
+
+Inside Claude Code the `atp` MCP server is preconfigured (`.mcp.json` +
+`enabledMcpjsonServers` in `.claude/settings.json`), so you can go straight
+to the demo below.
+
+## Using the `atp` MCP server (the workshop demo)
+
+Once Claude Code is running, the `atp_mcp` tools are available to the agent.
+They cover the whole workflow: backend discovery and verification, TPTP
+linting, single-prover and portfolio SystemOnTPTP calls, and the Isabelle
+and StarExec backends. The agent calls them with their documented arguments
+only — no credentials and no backend binary are ever passed by hand; the
+container wiring (below) supplies those.
+
+A warm-up to confirm everything is connected:
 
 > "List the available ATP backends, then prove `p => p` with the local
 > E prover, and then prove the same lemma in Isabelle/HOL."
+
+The workshop demo itself formalizes a natural-language argument and checks
+it mechanically. The full prompt is in [`prompts/nemo.txt`](prompts/nemo.txt);
+paste it in verbatim. In outline it asks the agent to:
+
+1. formalize a short argument (all fish live in water; Nemo is a clownfish;
+   therefore Nemo lives in water) in **TPTP (THF)**, using *only* the stated
+   premises and conclusion — no background knowledge;
+2. **lint** the problem before running it;
+3. check it with a **small portfolio of provers** and report the SZS verdict;
+4. explain what the verdict says about the argument's validity.
+
+Because the premises never connect "clownfish" to "fish", the argument is
+*not* valid as stated, and the portfolio should report a non-Theorem
+verdict — the point of the demo is that a faithful formalization exposes the
+missing premise rather than papering over it.
+
+The StarExec backend used in the demo expects a StarExec instance the
+container can reach — see the StarExec section below for how the canonical
+instance runs on the host and is reached at
+`https://host.containers.internal:7827`.
 
 ## What's in the image
 
@@ -31,57 +81,36 @@ Inside Claude Code, the `atp` MCP server is preconfigured (`.mcp.json` +
   in the image, at `/usr/local/bin`.
 - **Isabelle2025-2** at `/opt/Isabelle2025-2`, on PATH, HOL heap ready.
 - **`atp_mcp` escript** pre-installed at `/home/node/.mix/escripts/atp_mcp`.
-- **`livebook` escript** for the KinoAtpClient smart-cell demo.
 - **E prover** (Debian package) for the offline `local_exec` backend.
 - `LANG=C.UTF-8`, `ELIXIR_ERL_OPTIONS=+fnu`, `ERL_AFLAGS=+fnu` set
-  image-wide.
+  image-wide (unicode filename mode; without it the BEAM's latin1 fallback
+  escapes characters like `…` as `\x{2026}`, which is invalid JSON and
+  times out the MCP client).
 
 ## How the Isabelle backend is wired
 
 `AtpClient`'s Isabelle backend talks to a resident **Isabelle server**
 (TCP, password-authenticated). The MCP launcher
 (`.claude/atp-mcp-launch.sh`) ensures a server named `atp` is running on
-port 9999 and writes `host`/`port`/`password` to `.isabelle_server_info`
-(git-ignored). Because the escript cannot see this project's `config.exs`,
-the credentials are passed **per tool call** — `CLAUDE.md` instructs Claude
-to read the info file and forward `host`, `port`, `password` on
-`prove_isabelle` / `query_backend(backend: "isabelle")`, both of which
-accept these keys as per-call overrides.
+port 9999 and writes its `host`/`port`/`password` to `.isabelle_server_info`
+(git-ignored).
 
-Code running _inside_ the Mix project (iex, Livebook) instead picks the
-password up from `config/config.exs`, which reads the same info file.
+The `atp_mcp` escript bakes its own config at build time and cannot read
+this project's `config.exs`, so the launcher hands it the credentials at
+runtime a different way: it writes an OTP `sys.config`
+(`~/.isabelle-atp/atp_mcp_sys.config`) and points the escript's BEAM at it
+via `ERL_FLAGS=-config …`. As of atp_mcp 0.5.0 all Isabelle traffic goes
+through the long-lived `AtpMcp.IsabelleSession`, which reads this
+**application env only** — per-call `host`/`port`/`password` arguments were
+removed. That is why the agent never passes credentials on a tool call:
+there is nowhere to pass them.
 
-## Differences from the old ShotTx container setup
+Code running _inside_ the Mix project (e.g. iex) instead reads the same
+`.isabelle_server_info` through `config/config.exs`.
 
-The ShotTx `.devcontainer`/launcher had several intertwined problems; this
-setup fixes each at the root:
-
-1. **Elixir 1.19 vs. 1.20.** The old image pinned `elixir:1.19-alpine`,
-   but `atp_mcp` requires `~> 1.20`, so `mix escript.install hex atp_mcp`
-   failed — silently, because the launcher appended `|| true`. The MCP
-   server then never came up. → Base image is now `elixir:1.20-otp-28`,
-   and the escript is installed (and verified with `test -x`) at image
-   build time, so a broken install fails the build, not the demo.
-2. **PATH breakage.** The old profile layered asdf devcontainer features
-   on top of the image's Elixir, and `settings.json` replaced PATH with a
-   hardcoded list of asdf shim directories that didn't exist in every
-   build (a `RUN export PATH=...` line in the Dockerfile additionally did
-   nothing — `export` doesn't persist across Docker layers). → There is
-   now exactly one Elixir installation; PATH is set once as image `ENV`,
-   and `settings.json` repeats the identical value.
-3. **`+fnu`.** On the old Alpine (musl) base the BEAM fell back to latin1
-   filename/IO encoding, and the `:user` device escaped characters like
-   `…` as `\x{2026}` — invalid JSON, MCP `tools/list` timeout. → Debian
-   base with `LANG=LC_ALL=C.UTF-8`, plus `ELIXIR_ERL_OPTIONS=+fnu` and
-   `ERL_AFLAGS=+fnu` baked in as `ENV` (and defensively re-exported in the
-   launcher).
-4. **No Isabelle.** → Isabelle2025-2 installed under `/opt` (glibc base is
-   required — Isabelle's bundled Poly/ML and JDK don't run on musl, which
-   is the other reason Alpine had to go), with the resident-server
-   lifecycle handled by the MCP launcher.
-5. **Install race on first MCP connect.** The old lazy-install launcher
-   (and a `SessionStart` hook variant) raced the MCP client's first
-   `tools/list`. → Nothing is installed at session start anymore.
+The first Isabelle call in a container run loads the HOL session (the heap is
+prebuilt; expect a few seconds up to ~1 min), so allow a generous timeout on
+the first call.
 
 ## Local StarExec container + higher-order E prover
 
@@ -132,19 +161,33 @@ scripts/make-starexec-zip.sh             # build starexec/eprover-ho-<ver>-stare
   "description from archive". Port 7827 must be forwarded to reach the UI
   from the host browser.
 
-## Livebook / KinoAtpClient
+## Livebook / KinoAtpClient (run on the host)
 
-Inside the container:
+The Livebook demo runs on your **host machine**, not in the container — the
+container has no Livebook, and its network namespace is isolated (pasta), so
+a Livebook served from inside would not be reachable from the host browser.
+The workspace is bind-mounted, so `examples/demo.livemd` is already on the
+host at the same path.
+
+On the host you need Elixir and Livebook installed. The notebook uses
+`Mix.install`, so it pulls `kino_atp_client` itself — no `mix deps.get`:
 
 ```bash
-mix deps.get
-livebook server --ip 0.0.0.0 --port 8080 examples/demo.livemd
+livebook server examples/demo.livemd
 ```
 
-Reaching the Livebook UI from the host requires the container port to be
-exposed; how to do that depends on your claudeman/podman networking (with
-`--no-firewall` and host networking it may already be reachable). If not,
-add a port mapping to your claudeman invocation or profile.
+The demo exercises all four backends, so on the host you also need:
+
+- **E prover** for the `LocalExec` cells (the notebook uses `eprover-ho`).
+  Build host binaries from inside the container with
+  `scripts/make-host-binaries.sh` — it writes **statically linked** `eprover`
+  and `eprover-ho` into `host-bin/`, which appears at the same path on the
+  host (see the StarExec section). Put them on the host PATH or point the
+  `LocalExec` `binary:` option at `host-bin/eprover-ho`.
+- **Isabelle** installed on the host for the Isabelle cells (the notebook
+  starts its own Isabelle server with `IsabelleClient.start_server`).
+- A **StarExec** instance for the StarExec cells, and outbound network for
+  the SystemOnTPTP cells.
 
 ## Caveats
 
