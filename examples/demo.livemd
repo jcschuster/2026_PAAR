@@ -1,4 +1,4 @@
-# AtpClient + KinoAtpClient demo
+# Elixir meets TPTP — PAAR'26 demo
 
 ```elixir
 Mix.install([
@@ -6,59 +6,171 @@ Mix.install([
 ])
 ```
 
-## LocalExec: prove a TPTP problem with a local E prover
+## Setup
 
 ```elixir
-Application.put_env(:atp_client, :local_exec,
+alias AtpClient.{SystemOnTptp, Isabelle, LocalExec}
+```
+
+```elixir
+pick_prover = fn prefix ->
+  SystemOnTptp.list_provers()
+  |> Enum.find(&String.starts_with?(&1, prefix))
+end
+
+provers = %{
+  leo3: pick_prover.("Leo-III---"),
+  cvc5: pick_prover.("cvc5---"),
+  vampire: pick_prover.("Vampire---"),
+  zipperposition: pick_prover.("Zipperpin---")
+}
+```
+
+```elixir
+{:ok, server} =
+  IsabelleClient.start_server(
+    server_name: "paar_demo_#{System.unique_integer([:positive])}"
+  )
+
+isa_opts = [host: server.host, port: server.port, password: server.password]
+```
+
+```elixir
+LocalExec.verify(binary: "/home/johannes/.local/bin/eprover")
+```
+
+---
+
+<!-- livebook:{"branch_parent_index":0} -->
+
+## A. Uniform result type
+
+The problem: __functional extensionality__, stated in THF.
+
+```elixir
+problem = ~S"""
+thf(ext, conjecture,
+    ![F:$i>$i, G:$i>$i]: ( ( ![X:$i]: ( (F @ X) = (G @ X) ) ) => (F = G) )
+).
+"""
+```
+
+Remote prover on SystemOnTPTP:
+
+```elixir
+SystemOnTptp.query_system(problem, provers.leo3, time_limit_sec: 10)
+```
+
+**A selected portfolio, one round-trip** (provers that can't handle
+higher-order are dropped from the result list):
+
+```elixir
+SystemOnTptp.query_selected_systems(
+  problem,
+  [provers.cvc5, provers.zipperposition],
+  time_limit_sec: 10
+)
+```
+
+**Same TPTP problem, different backend: Isabelle/HOL.**
+`query_tptp/2` isabellizes the annotated formulae and returns one verdict
+*per conjecture* — note the second goal is deliberately false, and the
+result type keeps `:theorem` and `:counter_satisfiable` distinct:
+
+```elixir
+tptp_two_goals = problem <> ~S"""
+thf(p_type, type, p: $i > $o).
+thf(g_false, conjecture, ![X: $i]: (p @ X & ~ (p @ X))).
+"""
+
+Isabelle.query_tptp(
+  tptp_two_goals,
+  isa_opts ++ [proof_method: "sledgehammer nitpick oops", use_theories_timeout_ms: 600_000]
+)
+```
+
+**One-line backend swap**: a local binary, no network.
+
+```elixir
+LocalExec.query(problem,
   binary: "/home/johannes/.local/bin/eprover",
   args: ["--auto", "--tstp-format", "--cpu-limit=10"],
   cpu_timeout_s: 10
 )
-
-problem = """
-fof(tautology, conjecture, (p => p)).
-"""
-
-AtpClient.LocalExec.query(problem, [])
 ```
 
-## Isabelle: prove a lemma via the resident server
+---
 
-The container's MCP launcher starts an Isabelle server (`atp`, port 9999)
-and writes its password to `/workspace/.isabelle_server_info`. If you
-haven't started Claude Code in this container yet, start the server by
-hand first: `isabelle server -n atp -p 9999 &` and note the printed
-password.
+<!-- livebook:{"branch_parent_index":0} -->
+
+## B. Portfolio solving
+
+Watch the results stream in as provers finish. Stragglers are killed at the
+deadline without touching their peers:
 
 ```elixir
-password =
-  "/workspace/.isabelle_server_info"
-  |> File.read!()
-  |> String.split("\n", trim: true)
-  |> Enum.find_value(fn
-    "password=" <> pw -> pw
-    _ -> nil
+frame = Kino.Frame.new() |> Kino.render()
+
+portfolio = [provers.leo3, provers.cvc5, provers.zipperposition, provers.vampire]
+
+t0 = System.monotonic_time(:millisecond)
+
+results =
+  portfolio
+  |> Task.async_stream(
+    fn sys -> {sys, SystemOnTptp.query_system(problem, sys, time_limit_sec: 15)} end,
+    max_concurrency: 16,
+    timeout: 20_000,
+    on_timeout: :kill_task
+  )
+  |> Enum.map(fn outcome ->
+    dt = System.monotonic_time(:millisecond) - t0
+
+    line =
+      case outcome do
+        {:ok, {sys, result}} -> "#{dt} ms — #{sys} → #{inspect(result)}"
+        {:exit, :timeout} -> "#{dt} ms — straggler killed at deadline"
+      end
+
+    Kino.Frame.append(frame, Kino.Text.new(line))
+    outcome
   end)
 
-session = AtpClient.Isabelle.open_session(
-  host: "127.0.0.1",
-  port: 9999,
-  password: password,
-  session: "HOL"
-)
-
-theory = ~S"""
-lemma "P \<or> \<not> P" by auto
-"""
-
-AtpClient.Isabelle.prove_theory(session, theory, "Tautology")
+Enum.find(results, &match?({:ok, {_sys, {:ok, :theorem}}}, &1))
 ```
 
-## Smart cells
+---
 
-With `kino_atp_client` installed, the *"+ Smart"* cell menu offers the
-AtpClient smart cells — see the package's own `examples/demo.livemd` in
-`jcschuster/KinoAtpClient` for the full tour.
+## C. The Smart Cell: TPTP front-end
+
+<!--
+ Speaker cue: "Everything so far was the library. This is the first
+     downstream consumer — no backend-specific code in it."
+
+     LIVE SCRIPT for this beat (the typing IS the demo):
+     1. Add a new ATP Solver smart cell fresh (⌘/Ctrl-click "+ Smart" →
+        ATP Solver) — or reuse the pre-seeded one below as fallback.
+     2. Type a small problem. Deliberately mistype a role first:
+        `thf(oops, conjectur, $true).` → the two-tier linter underlines the
+        unknown role inline (Monaco marker). Fix it.
+     3. Hover `$i` or `!` → the explanatory card ("valuable for novices").
+     4. One-click Solve on SystemOnTPTP.
+     5. Flip the backend dropdown to Isabelle → controls swap to the proof
+        method picker; solve again → per-lemma result table.
+     "Zero Elixir written. And the cell generated the Elixir it represents —
+     look at the code it left behind." 
+-->
+
+The **Backend Configuration** cell (schema-driven — the form is generated by
+walking `config_schema/0`; with `isabelle` on `PATH`, leave Isabelle blank and
+it auto-spawns a server):
+
+<!-- livebook:{"attrs":"e30","chunks":null,"kind":"Elixir.KinoAtpClient.BackendConfig","livebook_object":"smart_cell"} -->
+
+```elixir
+# ATP Backend Configuration: no values set yet.
+
+```
 
 <!-- livebook:{"attrs":"eyJiYWNrZW5kIjoic290cHRwIiwicHJvYmxlbV9zdHIiOiJ0aGYodGVzdCwgY29uamVjdHVyZSwgJHRydWUgPT4gJHRydWUpLiIsInByb29mX21ldGhvZCI6ImJ5IGF1dG8iLCJzeXN0ZW0iOiJMZW8tSUlJLS0tMS44LjAiLCJ0aGVtZSI6IkRyYWN1bGEiLCJ0aW1lX2xpbWl0Ijo1LCJ0cHRwNHhfZW5hYmxlZCI6ZmFsc2V9","chunks":null,"kind":"Elixir.KinoAtpClient.AtpSolver","livebook_object":"smart_cell"} -->
 
@@ -79,26 +191,8 @@ end
 
 ```
 
-<!-- livebook:{"attrs":"eyJiYWNrZW5kIjoic3RhcmV4ZWMiLCJ2YWx1ZXMiOnsic3RhcmV4ZWMiOnsiYmFzZV91cmwiOiJodHRwczovLzEyNy4wLjAuMTo3ODI3IiwiaW5zZWN1cmVfdGxzIjp0cnVlLCJwYXNzd29yZCI6ImFkbWluIiwic29sdmVyX2NmZ19pZCI6IjEiLCJzcGFjZV9pZCI6IjEiLCJ1c2VybmFtZSI6ImFkbWluIn19fQ","chunks":null,"kind":"Elixir.KinoAtpClient.BackendConfig","livebook_object":"smart_cell"} -->
+## Teardown the Isabelle server
 
 ```elixir
-Application.put_env(:atp_client, :starexec, [
-  base_url: "https://127.0.0.1:7827",
-  username: "admin",
-  password: "admin",
-  space_id: 1,
-  solver_cfg_id: 1,
-  connect_options: [transport_opts: [verify: :verify_none]]
-])
-
-```
-
-<!-- livebook:{"attrs":"eyJiYWNrZW5kIjoic3RhcmV4ZWMiLCJwcm9ibGVtX3N0ciI6InRoZih0ZXN0LCBjb25qZWN0dXJlLCAkdHJ1ZSA9PiAkdHJ1ZSkuIiwicHJvb2ZfbWV0aG9kIjoiYnkgYXV0byIsInN5c3RlbSI6IkFsdC1FcmdvLS0tMC45NS4yIiwidGhlbWUiOiJEcmFjdWxhIiwidGltZV9saW1pdCI6NSwidHB0cDR4X2VuYWJsZWQiOmZhbHNlfQ","chunks":null,"kind":"Elixir.KinoAtpClient.AtpSolver","livebook_object":"smart_cell"} -->
-
-```elixir
-# Generated by ATP Solver (backend: StarExec)
-problem = "thf(test, conjecture, $true => $true)."
-
-AtpClient.StarExec.query(problem, cpu_timeout_s: 5)
-
+IsabelleClient.Server.kill(server.name)
 ```
