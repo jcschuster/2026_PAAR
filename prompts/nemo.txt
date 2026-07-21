@@ -1,9 +1,11 @@
 You have the AtpMcp tools available: backend discovery/verification, TPTP
 linting, single-prover and portfolio SystemOnTPTP calls, the Isabelle and
-StarExec (https://host.containers.internal:7827, admin:admin, cfg 1) backends.
+local eprover backends.
 
 Analyze the following natural-language argument by formalizing it in TPTP
-(THF) and checking it mechanically.
+(THF) and checking it mechanically. Use SystemOnTPTP, Isabelle and the local
+eprover as backends. If you need to translate between TPTP dialects,
+explicitly state so and provide your translation.
 
   Premise 1:  All fish live in water.
   Premise 2:  Nemo is a clownfish.
