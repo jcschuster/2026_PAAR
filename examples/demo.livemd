@@ -1,16 +1,23 @@
+<!-- livebook:{"file_entries":[{"name":"slides_qr.svg","type":"attachment"}]} -->
+
 # Elixir meets TPTP — PAAR'26 demo
 
 ```elixir
 Mix.install([
+  # automatically loads atp_client and kino as transitive dependencies as well
   {:kino_atp_client, "~> 0.6"}
 ])
 ```
 
-## Setup
+## Setup (not part of the demonstration)
+
+Imports of the implemented backends:
 
 ```elixir
 alias AtpClient.{SystemOnTptp, StarExec, Isabelle, LocalExec}
 ```
+
+Fix prover selection for reproducibility (don't pin versions):
 
 ```elixir
 pick_prover = fn prefix ->
@@ -26,18 +33,28 @@ provers = %{
 }
 ```
 
+Start an `isabelle server` (the `isabelle` executable must be on the `PATH` for that or `ISABELLE_TOOL` be set) :
+
 ```elixir
 {:ok, server} =
   IsabelleClient.start_server(
     server_name: "paar_demo_#{System.unique_integer([:positive])}"
   )
 
-isa_opts = [host: server.host, port: server.port, password: server.password]
+isa_opts = [
+  host: server.host,
+  port: server.port,
+  password: server.password
+]
 ```
+
+Verify that the `eprover-ho` binary is executable from this environment:
 
 ```elixir
 LocalExec.verify(binary: "eprover-ho")
 ```
+
+Verify that the locally hosted StarExec server is reachable:
 
 ```elixir
 starexec_opts = [
@@ -60,6 +77,8 @@ end
 
 Example problem: __functional extensionality__, stated in THF.
 
+$\textrm{funExt} \coloneqq \forall F_{\iota\to\iota} G_{\iota\to\iota}.\,(\forall X_\iota.\, F~X = G~X) \supset F = G$
+
 ```elixir
 problem = """
 thf(funExt, conjecture,
@@ -72,6 +91,14 @@ thf(funExt, conjecture,
     )
 ).
 """
+
+IO.puts problem
+```
+
+Shorthand prover access defined in a setup cell:
+
+```elixir
+provers
 ```
 
 __Remote prover__ on SystemOnTPTP:
@@ -106,7 +133,7 @@ with {:ok, res} <- Isabelle.query_tptp(
   tptp_two_goals,
   isa_opts ++ [
     proof_method: "sledgehammer nitpick oops",
-    use_theories_timeout_ms: 600_000
+    use_theories_timeout_ms: 60_000
   ]
 ) do
   res |> Enum.each(&IO.inspect &1.result, label: &1.name)
@@ -124,7 +151,7 @@ Application.put_env(:atp_client, :starexec,
 )
 
 StarExec.query(problem,
-  space_id: 1, solver_cfg_id: 1 # eprover-ho running on a self-hosted instance
+  space_id: 1, solver_cfg_id: 1    # eprover-ho running on a self-hosted instance
 )
 ```
 
@@ -136,7 +163,7 @@ LocalExec.query(problem,
 )
 ```
 
-Setting `raw: true` allows us to inspect the prover's output:
+Setting `raw: true` allows us to inspect the prover's __uninterpreted output__:
 
 ```elixir
 with {:ok, res} <- LocalExec.query(problem,
@@ -154,8 +181,9 @@ end
 
 ## B. Portfolio solving
 
-Watch the results stream in as provers finish. Stragglers are killed at the
-deadline without touching their peers:
+A harder problem: __injective formulation of Cantor's theorem__.
+
+$\neg\exists H_{(\iota\to o)\to\iota}.\,\forall P_{\iota\to o} Q_{\iota\to o}. (H~P = H~Q) \supset P = Q$
 
 ```elixir
 problem = """
@@ -169,10 +197,15 @@ thf(injCantor, conjecture,
   )
 ).
 """
+
+IO.puts problem
 ```
 
+Watch the __results stream__ in as provers finish. __Stragglers are killed__ at the
+deadline without touching their peers:
+
 ```elixir
-frame = Kino.Frame.new() |> Kino.render()
+frame = Kino.Frame.new() |> Kino.render()      # Front-end library for dynamic output
 
 portfolio = [provers.leo3, provers.cvc5, provers.zipperposition, provers.vampire]
 
@@ -181,10 +214,9 @@ t0 = System.monotonic_time(:millisecond)
 results =
   portfolio
   |> Task.async_stream(
-    fn sys -> {sys, SystemOnTptp.query_system(problem, sys, time_limit_sec: 15)} end,
-    max_concurrency: 16,
-    timeout: 12_000,
-    on_timeout: :kill_task
+    fn sys -> {sys, SystemOnTptp.query_system(problem, sys)} end,
+    timeout: 5_000, on_timeout: :kill_task,    # kill stragglers after 5s
+    ordered: false                             # non-deterministic scheduling
   )
   |> Enum.map(fn outcome ->
     dt = System.monotonic_time(:millisecond) - t0
@@ -246,13 +278,49 @@ Application.put_env(:atp_client, :starexec, [
 
 ```
 
+Clicking _+ Smart_ below this cell lets us select the __editor Smart Cell__ _ATP solver_.
+
+<!-- livebook:{"break_markdown":true} -->
+
 Example problems:
 
 * $h~(h~\top = h~\bot) = h~\bot$
-* $(\forall X.\,\exists Y.\,r~X~Y) \supset (\exists F.\,\forall X.\,r~X~(F~X))$
+  <!--
+  thf(h_type, type, h:$o>$i).
+  thf(conj, conjecture,
+  (h @ ((h @ $true) = (h @ $false))) = (h @ $false)
+  ).
+  -->
+* $(\forall X.\,\exists Y.\,r~X~Y) \vdash (\exists F.\,\forall X.\,r~X~(F~X))$
+  <!--
+  thf(r_type, type, r:$i>$i>$o).
+  thf(ax1, axiom,
+  ![X:$i]: (?[Y:$i]: (r @ X @ Y))
+  ).
+  thf(conj, conjecture,
+  ?[F:$i>$i]: (![X:$i]: (r @ X @ (F @ X)))
+  ).
+  -->
 
 ## Teardown the Isabelle server
 
 ```elixir
 IsabelleClient.Server.kill(server.name)
 ```
+
+## Releases
+
+__AtpClient__ — _use your favorite theorem prover_
+
+* Hex: https://atp-client.hexdocs.pm
+* GitHub: https://github.com/jcschuster/AtpClient
+
+__KinoAtpClient__ — _notebook front-end with syntax highlighting_
+
+* Hex: https://kino-atp-client.hexdocs.pm
+* GitHub: https://github.com/jcschuster/KinoAtpClient
+
+__AtpMcp__ — _ATP tools for LLM agents_
+
+* Hex: https://atp-mcp.hexdocs.pm
+* GitHub: https://github.com/jcschuster/AtpMcp
