@@ -140,7 +140,27 @@ with {:ok, res} <- Isabelle.query_tptp(
 end
 ```
 
-**One-line backend swap**: a local binary, no network.
+Although not yet polished, users can still use __Isabelle code__ and inspect the __system output__:
+
+```elixir
+isabelle_problem = """
+lemma sym_trans_implies_refl:
+  assumes "∀x y. R x y ⟶ R y x"
+      and "∀x y z. R x y ∧ R y z ⟶ R x z"
+    shows "∀x. R x x"
+  nitpick
+  oops
+"""
+
+with {:ok, session} <- AtpClient.Isabelle.open_session(isa_opts),
+     {:ok, res} <- Isabelle.prove_theory(session, isabelle_problem, "Example", raw: true)
+do
+  res |> IsabelleClient.Result.messages |> IO.puts
+  AtpClient.Isabelle.close_session(session)
+end
+```
+
+**One-line backend swap**: StarExec and a local binary.
 
 ```elixir
 Application.put_env(:atp_client, :starexec,
